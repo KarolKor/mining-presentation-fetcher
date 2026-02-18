@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mining Presentation Fetcher</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+  </head>
+  <body>
+    <div class="bg-gradient"></div>
+    <main class="shell">
+      <section class="panel hero">
+        <p class="chip">Local App</p>
+        <h1>Mining Presentation Fetcher</h1>
+        <p class="lead">
+          Fetch latest investor decks for public mining companies and store full extracted text.
+        </p>
+      </section>
+
+      <section class="panel form-panel">
+        <h2>Run Fetch</h2>
+        {% if form_error %}
+        <div class="error">{{ form_error }}</div>
+        {% endif %}
+        <form method="post" action="/run" enctype="multipart/form-data">
+          <label for="company_specs">Inline company specs</label>
+          <textarea
+            id="company_specs"
+            name="company_specs"
+            placeholder="One per line: name|ir_url|ticker|country|cik
+Example:
+Agnico Eagle Mines|https://www.agnicoeagle.com/English/investors/default.aspx|AEM|CA|
+Newmont Corporation|https://www.newmont.com/investors/default.aspx|NEM|US|1164727"
+          ></textarea>
+
+          <label for="companies_csv">Or upload CSV (name,ir_url,ticker,country,cik)</label>
+          <input id="companies_csv" type="file" name="companies_csv" accept=".csv,text/csv" />
+
+          <div class="row">
+            <div>
+              <label for="latest_count">Latest count</label>
+              <input id="latest_count" type="number" name="latest_count" value="1" min="1" max="10" />
+            </div>
+            <div>
+              <label for="timeout">Timeout (sec)</label>
+              <input id="timeout" type="number" name="timeout" value="20" min="5" max="120" />
+            </div>
+          </div>
+
+          <div class="checks">
+            <label><input type="checkbox" name="include_sec" checked /> Include SEC fallback</label>
+            <label><input type="checkbox" name="playwright_fallback" /> Playwright fallback</label>
+            <label><input type="checkbox" name="disable_search_fallback" /> Disable web search fallback</label>
+            <label><input type="checkbox" name="dry_run" /> Dry run (no download)</label>
+          </div>
+
+          <button type="submit">Run Fetcher</button>
+        </form>
+      </section>
+
+      {% if result %}
+      <section class="panel">
+        <h2>Run Result</h2>
+        <p class="meta">Job: <code>{{ result.job_id }}</code></p>
+        <p class="meta">Records: <strong>{{ result.records|length }}</strong></p>
+        {% if result.run_meta.returncode is defined %}
+        <p class="meta">
+          Exit code:
+          <strong class="{{ 'good' if result.run_meta.returncode == 0 else 'bad' }}">
+            {{ result.run_meta.returncode }}
+          </strong>
+        </p>
+        {% endif %}
+      </section>
+
+      <section class="panel">
+        <h2>Files</h2>
+        {% if result.records %}
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Company</th>
+                <th>Title</th>
+                <th>Date</th>
+                <th>Source</th>
+                <th>Deck</th>
+                <th>Text</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in result.records %}
+              <tr>
+                <td>{{ row.company_name or row.ticker or "-" }}</td>
+                <td>{{ row.title or "-" }}</td>
+                <td>{{ row.published_date or "-" }}</td>
+                <td>{{ row.source or "-" }}</td>
+                <td>
+                  {% if row.local_file_url %}
+                  <a href="{{ row.local_file_url }}" target="_blank" rel="noreferrer">open</a>
+                  {% else %}
+                  -
+                  {% endif %}
+                </td>
+                <td>
+                  {% if row.text_file_url %}
+                  <a href="{{ row.text_file_url }}" target="_blank" rel="noreferrer">open</a>
+                  {% else %}
+                  -
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <p class="meta">No records in manifest for this run.</p>
+        {% endif %}
+      </section>
+
+      <section class="panel">
+        <h2>Logs</h2>
+        <h3>stdout</h3>
+        <pre>{{ result.run_meta.stdout if result.run_meta.stdout is defined else '' }}</pre>
+        <h3>stderr</h3>
+        <pre>{{ result.run_meta.stderr if result.run_meta.stderr is defined else '' }}</pre>
+      </section>
+      {% endif %}
+    </main>
+  </body>
+</html>
+

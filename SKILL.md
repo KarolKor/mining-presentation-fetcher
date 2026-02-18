@@ -56,6 +56,26 @@ Preview discovered links without downloading:
 python scripts/fetch_latest_presentations.py --companies-csv companies.csv --dry-run --verbose
 ```
 
+## Web App
+
+Install web dependency:
+
+```bash
+pip install -r web/requirements.txt
+```
+
+Run local UI:
+
+```bash
+python web/app.py
+```
+
+Open:
+
+```text
+http://127.0.0.1:5050
+```
+
 ## Output Contract
 
 - Save downloaded files under `output/<company-slug>/`.
