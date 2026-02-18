@@ -33,13 +33,19 @@
           <textarea
             id="company_specs"
             name="company_specs"
-            placeholder="One per line: name|ir_url|ticker|country|cik
+            placeholder="One per line, fastest format: ticker|exchange
+Examples:
+AEM|TSX
+NEM|NYSE
+
+Full format is still supported:
+name|ir_url|ticker|country|cik|exchange
 Example:
-Agnico Eagle Mines|https://www.agnicoeagle.com/English/investors/default.aspx|AEM|CA|
-Newmont Corporation|https://www.newmont.com/investors/default.aspx|NEM|US|1164727"
+Agnico Eagle Mines|https://www.agnicoeagle.com/English/investors/default.aspx|AEM|CA||TSX
+Newmont Corporation|https://www.newmont.com/investors/default.aspx|NEM|US|1164727|NYSE"
           ></textarea>
 
-          <label for="companies_csv">Or upload CSV (name,ir_url,ticker,country,cik)</label>
+          <label for="companies_csv">Or upload CSV (name,ir_url,ticker,country,cik,exchange)</label>
           <input id="companies_csv" type="file" name="companies_csv" accept=".csv,text/csv" />
 
           <div class="row">
@@ -136,4 +142,3 @@ Newmont Corporation|https://www.newmont.com/investors/default.aspx|NEM|US|116472
     </main>
   </body>
 </html>
-

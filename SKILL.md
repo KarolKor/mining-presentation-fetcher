@@ -12,7 +12,7 @@ Prioritize company IR pages for all markets and optionally query SEC filings for
 
 ## Workflow
 
-1. Prepare company inputs with `name` plus optional `ir_url`, `ticker`, `country`, and `cik`.
+1. Prepare company inputs as either shorthand `ticker|exchange` or full fields with `name`, `ir_url`, `ticker`, `country`, `cik`, and `exchange`.
 2. Run `scripts/fetch_latest_presentations.py` with `--companies-csv` or repeated `--company` flags.
 3. Crawl IR pages, score candidate presentation links, and pick the most recent files by date signals.
 4. Download latest file(s) and extract full text from `pdf` and `pptx` documents.
@@ -43,8 +43,8 @@ Fetch from inline company specs and include SEC fallback for US tickers:
 
 ```bash
 python scripts/fetch_latest_presentations.py \
-  --company "Agnico Eagle Mines|https://www.agnicoeagle.com/English/investors/default.aspx|AEM|CA|" \
-  --company "Newmont Corporation|https://www.newmont.com/investors/default.aspx|NEM|US|" \
+  --company "AEM|TSX" \
+  --company "NEM|NYSE" \
   --include-sec \
   --playwright-fallback \
   --output-dir output

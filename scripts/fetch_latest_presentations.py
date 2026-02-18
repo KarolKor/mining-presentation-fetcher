@@ -79,6 +79,45 @@ COMMON_IR_PATHS = (
     "/investors/presentations",
     "/presentations",
 )
+EXCHANGE_ALIASES = {
+    "NYSE": "NYSE",
+    "NYQ": "NYSE",
+    "NASDAQ": "NASDAQ",
+    "NMS": "NASDAQ",
+    "NASDAQGS": "NASDAQ",
+    "NASDAQGM": "NASDAQ",
+    "NASDAQCM": "NASDAQ",
+    "AMEX": "AMEX",
+    "ASE": "AMEX",
+    "TSX": "TSX",
+    "TOR": "TSX",
+    "TSE": "TSX",
+    "TSXV": "TSXV",
+    "TSX-V": "TSXV",
+    "TSXVENTURE": "TSXV",
+    "CVE": "TSXV",
+    "VAN": "TSXV",
+    "CSE": "CSE",
+    "CNQ": "CSE",
+    "ASX": "ASX",
+    "LSE": "LSE",
+}
+EXCHANGE_TO_COUNTRY = {
+    "NYSE": "US",
+    "NASDAQ": "US",
+    "AMEX": "US",
+    "TSX": "CA",
+    "TSXV": "CA",
+    "CSE": "CA",
+    "ASX": "AU",
+    "LSE": "GB",
+}
+YAHOO_SUFFIX_BY_EXCHANGE = {
+    "TSX": ".TO",
+    "TSXV": ".V",
+    "ASX": ".AX",
+    "LSE": ".L",
+}
 
 
 @dataclass
@@ -88,6 +127,7 @@ class Company:
     ticker: str | None = None
     country: str | None = None
     cik: str | None = None
+    exchange: str | None = None
 
     @property
     def id_label(self) -> str:
@@ -118,14 +158,15 @@ def parse_args() -> argparse.Namespace:
         action="append",
         default=[],
         help=(
-            "Inline company spec: 'name|ir_url|ticker|country|cik'. "
+            "Inline company spec. Use 'ticker|exchange' (example: AEM|TSX) "
+            "or full form 'name|ir_url|ticker|country|cik|exchange'. "
             "Provide multiple times for multiple issuers."
         ),
     )
     parser.add_argument(
         "--companies-csv",
         type=Path,
-        help="CSV file with columns: name, ir_url, ticker, country, cik",
+        help="CSV file with columns: name, ir_url, ticker, country, cik, exchange",
     )
     parser.add_argument(
         "--output-dir",
@@ -347,11 +388,61 @@ def infer_extension(url: str, content_type: str | None) -> str:
     return ".bin"
 
 
+def normalize_exchange(value: str | None) -> str | None:
+    if not value:
+        return None
+    token = re.sub(r"\s+", "", value.strip().upper())
+    return EXCHANGE_ALIASES.get(token, token if token else None)
+
+
+def country_from_exchange(exchange: str | None) -> str | None:
+    if not exchange:
+        return None
+    return EXCHANGE_TO_COUNTRY.get(normalize_exchange(exchange) or "")
+
+
+def yahoo_symbol_for_ticker(ticker: str, exchange: str | None) -> str:
+    symbol = ticker.strip().upper()
+    if not symbol:
+        return symbol
+    if "." in symbol:
+        return symbol
+    suffix = YAHOO_SUFFIX_BY_EXCHANGE.get(normalize_exchange(exchange) or "")
+    if suffix:
+        return f"{symbol}{suffix}"
+    return symbol
+
+
+def parse_inline_parts(spec: str) -> list[str]:
+    if "|" in spec:
+        return [part.strip() for part in spec.split("|")]
+    if "," in spec:
+        return [part.strip() for part in spec.split(",")]
+    return [spec.strip()]
+
+
 def parse_inline_company(spec: str) -> Company:
-    parts = [part.strip() for part in spec.split("|")]
-    if len(parts) < 5:
-        parts.extend([""] * (5 - len(parts)))
-    name, ir_url, ticker, country, cik = parts[:5]
+    parts = parse_inline_parts(spec)
+
+    # Shorthand: ticker|exchange, e.g. AEM|TSX.
+    if len(parts) == 2 and parts[0] and normalize_exchange(parts[1]):
+        ticker = parts[0].upper()
+        exchange = normalize_exchange(parts[1])
+        return Company(
+            name=ticker,
+            ticker=ticker,
+            country=country_from_exchange(exchange),
+            exchange=exchange,
+        )
+
+    if len(parts) < 6:
+        parts.extend([""] * (6 - len(parts)))
+    name, ir_url, ticker, country, cik, exchange = parts[:6]
+    ticker = ticker.upper() if ticker else None
+    exchange = normalize_exchange(exchange)
+    country = country.upper() if country else None
+    country = country or country_from_exchange(exchange)
+
     if not name and not ticker:
         raise ValueError(
             "Inline company must include at least name or ticker: "
@@ -360,9 +451,10 @@ def parse_inline_company(spec: str) -> Company:
     return Company(
         name=name or ticker,
         ir_url=ir_url or None,
-        ticker=ticker or None,
-        country=country or None,
+        ticker=ticker,
+        country=country,
         cik=cik or None,
+        exchange=exchange,
     )
 
 
@@ -372,16 +464,21 @@ def load_companies_from_csv(path: Path) -> list[Company]:
         reader = csv.DictReader(handle)
         for row in reader:
             name = (row.get("name") or "").strip()
-            ticker = (row.get("ticker") or "").strip()
+            ticker = (row.get("ticker") or "").strip().upper()
             if not name and not ticker:
                 continue
+            exchange = normalize_exchange((row.get("exchange") or "").strip() or None)
+            country = ((row.get("country") or "").strip() or None)
+            country = country.upper() if country else None
+            country = country or country_from_exchange(exchange)
             companies.append(
                 Company(
                     name=name or ticker,
                     ir_url=((row.get("ir_url") or "").strip() or None),
                     ticker=(ticker or None),
-                    country=((row.get("country") or "").strip() or None),
+                    country=country,
                     cik=((row.get("cik") or "").strip() or None),
+                    exchange=exchange,
                 )
             )
     return companies
@@ -396,6 +493,78 @@ def load_companies(args: argparse.Namespace) -> list[Company]:
     if not companies:
         raise ValueError("Provide --company and/or --companies-csv input.")
     return companies
+
+
+def resolve_company_market_data(
+    company: Company,
+    session: requests.Session,
+    timeout: int,
+) -> Company:
+    if not company.ticker:
+        return company
+
+    query_symbol = yahoo_symbol_for_ticker(company.ticker, company.exchange)
+    search_url = f"https://query2.finance.yahoo.com/v1/finance/search?q={quote_plus(query_symbol)}"
+
+    try:
+        search_resp = session.get(search_url, timeout=timeout)
+        search_resp.raise_for_status()
+        search_payload = search_resp.json()
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.debug("Market-data resolve failed for %s: %s", company.ticker, exc)
+        return company
+
+    quote_candidates = search_payload.get("quotes", [])
+    if not quote_candidates:
+        return company
+
+    filtered = [
+        item
+        for item in quote_candidates
+        if str(item.get("quoteType", "")).upper() == "EQUITY"
+    ] or quote_candidates
+    first = filtered[0]
+
+    resolved_name = (
+        first.get("longName")
+        or first.get("longname")
+        or first.get("shortName")
+        or first.get("shortname")
+        or first.get("displayName")
+        or company.name
+    )
+    resolved_exchange = normalize_exchange(
+        company.exchange
+        or first.get("exchange")
+        or first.get("exchDisp")
+    )
+    resolved_country = company.country or country_from_exchange(resolved_exchange)
+
+    is_placeholder_name = bool(company.ticker and company.name.upper() == company.ticker.upper())
+    final_name = resolved_name if is_placeholder_name else (company.name or resolved_name)
+
+    updated = Company(
+        name=final_name,
+        ir_url=company.ir_url,
+        ticker=company.ticker,
+        country=resolved_country,
+        cik=company.cik,
+        exchange=resolved_exchange,
+    )
+
+    if (
+        updated.name != company.name
+        or updated.country != company.country
+        or updated.exchange != company.exchange
+    ):
+        LOGGER.debug(
+            "Resolved %s -> name=%s exchange=%s country=%s",
+            company.ticker,
+            updated.name,
+            updated.exchange,
+            updated.country,
+        )
+    return updated
 
 
 def build_ir_seed_urls(ir_url: str) -> list[str]:
@@ -568,6 +737,8 @@ def discover_search_candidates(
     query_parts = [company.name, "investor presentation pdf"]
     if company.ticker:
         query_parts.append(company.ticker)
+    if company.exchange:
+        query_parts.append(company.exchange)
     query = " ".join(part for part in query_parts if part)
     search_url = f"https://duckduckgo.com/html/?q={quote_plus(query)}"
 
@@ -621,6 +792,8 @@ def discover_bing_candidates(
     query_parts = [company.name, "investor presentation pdf"]
     if company.ticker:
         query_parts.append(company.ticker)
+    if company.exchange:
+        query_parts.append(company.exchange)
     query = " ".join(part for part in query_parts if part)
     search_url = f"https://www.bing.com/search?q={quote_plus(query)}"
 
@@ -890,6 +1063,7 @@ def save_candidate(
     metadata: dict[str, Any] = {
         "company_name": candidate.company.name,
         "ticker": candidate.company.ticker,
+        "exchange": candidate.company.exchange,
         "country": candidate.company.country,
         "source": candidate.source,
         "source_page": candidate.source_page,
@@ -954,6 +1128,10 @@ def write_manifest(records: list[dict[str, Any]], output_dir: Path) -> None:
 def should_query_sec(company: Company) -> bool:
     if company.cik:
         return True
+    if company.exchange:
+        exchange_country = country_from_exchange(company.exchange)
+        if exchange_country and exchange_country not in US_COUNTRY_CODES:
+            return False
     if company.country and company.country.upper() not in US_COUNTRY_CODES:
         return False
     return bool(company.ticker)
@@ -984,6 +1162,15 @@ def main() -> int:
             "Accept-Language": "en-US,en;q=0.9",
         }
     )
+
+    companies = [
+        resolve_company_market_data(
+            company=company,
+            session=session,
+            timeout=args.timeout,
+        )
+        for company in companies
+    ]
 
     ticker_map: dict[str, str] | None = None
     if args.include_sec:

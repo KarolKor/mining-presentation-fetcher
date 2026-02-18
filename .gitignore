@@ -13,5 +13,6 @@ env/
 # Local runtime output
 output/
 output_test/
+output_test*/
 *.log
 web/runs/
