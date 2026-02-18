@@ -29,21 +29,29 @@
         <div class="error">{{ form_error }}</div>
         {% endif %}
         <form method="post" action="/run" enctype="multipart/form-data">
-          <label for="company_specs">Inline company specs</label>
-          <textarea
-            id="company_specs"
-            name="company_specs"
-            placeholder="One per line, fastest format: ticker|exchange
-Examples:
-AEM|TSX
-NEM|NYSE
-
-Full format is still supported:
-name|ir_url|ticker|country|cik|exchange
-Example:
-Agnico Eagle Mines|https://www.agnicoeagle.com/English/investors/default.aspx|AEM|CA||TSX
-Newmont Corporation|https://www.newmont.com/investors/default.aspx|NEM|US|1164727|NYSE"
-          ></textarea>
+          <div class="row">
+            <div>
+              <label for="ticker">Ticker</label>
+              <input
+                id="ticker"
+                type="text"
+                name="ticker"
+                placeholder="AEM"
+                value="{{ form_values.ticker if form_values is defined else '' }}"
+              />
+            </div>
+            <div>
+              <label for="exchange">Exchange</label>
+              <select id="exchange" name="exchange">
+                {% set selected_exchange = form_values.exchange if form_values is defined else 'TSX' %}
+                {% for option in exchange_options %}
+                <option value="{{ option }}" {{ 'selected' if option == selected_exchange else '' }}>
+                  {{ option }}
+                </option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
 
           <label for="companies_csv">Or upload CSV (name,ir_url,ticker,country,cik,exchange)</label>
           <input id="companies_csv" type="file" name="companies_csv" accept=".csv,text/csv" />

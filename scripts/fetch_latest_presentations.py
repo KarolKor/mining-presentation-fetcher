@@ -52,6 +52,7 @@ except ImportError:  # pragma: no cover
 
 LOGGER = logging.getLogger("presentation_fetcher")
 DOC_EXTENSIONS = {".pdf", ".ppt", ".pptx"}
+SEC_DOC_EXTENSIONS = {".pdf", ".ppt", ".pptx", ".htm", ".html", ".txt"}
 US_COUNTRY_CODES = {"US", "USA", "UNITED STATES"}
 DEFAULT_USER_AGENT = "mining-presentation-fetcher/1.0 (contact: replace@example.com)"
 LINK_KEYWORDS = (
@@ -378,13 +379,17 @@ def score_link(title: str, url: str) -> int:
 
 def infer_extension(url: str, content_type: str | None) -> str:
     suffix = Path(urlparse(url).path).suffix.lower()
-    if suffix in DOC_EXTENSIONS:
+    if suffix in SEC_DOC_EXTENSIONS:
         return suffix
     ct = (content_type or "").lower()
     if "pdf" in ct:
         return ".pdf"
     if "presentation" in ct or "powerpoint" in ct:
         return ".pptx"
+    if "html" in ct:
+        return ".html"
+    if "text/plain" in ct:
+        return ".txt"
     return ".bin"
 
 
@@ -943,12 +948,19 @@ def discover_sec_candidates(
         for item in items:
             name = str(item.get("name", ""))
             lower_name = name.lower()
-            if not any(lower_name.endswith(ext) for ext in DOC_EXTENSIONS):
+            if not any(lower_name.endswith(ext) for ext in SEC_DOC_EXTENSIONS):
                 continue
-            if not text_contains_keyword(lower_name):
+            is_exhibit_99 = bool(
+                re.search(r"(?:^|[_-])ex99(?:[_-]?\d+)?", lower_name)
+                or "_ex99-" in lower_name
+                or "_ex99." in lower_name
+            )
+            if not text_contains_keyword(lower_name) and not is_exhibit_99:
                 continue
             doc_url = archive_base + name
             score = score_link(name, doc_url) + 2
+            if is_exhibit_99:
+                score += 2
             candidates.append(
                 Candidate(
                     company=company,
@@ -1025,12 +1037,34 @@ def extract_pptx_text(path: Path) -> tuple[str, str]:
         return "", f"pptx-error:{exc}"
 
 
+def extract_html_text(path: Path) -> tuple[str, str]:
+    try:
+        raw = path.read_text(encoding="utf-8", errors="replace")
+        soup = BeautifulSoup(raw, "html.parser")
+        text = "\n".join(line.strip() for line in soup.get_text("\n").splitlines() if line.strip())
+        return text, "html-beautifulsoup"
+    except Exception as exc:  # noqa: BLE001
+        return "", f"html-error:{exc}"
+
+
+def extract_plain_text(path: Path) -> tuple[str, str]:
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+        return text.strip(), "txt-read"
+    except Exception as exc:  # noqa: BLE001
+        return "", f"txt-error:{exc}"
+
+
 def extract_text_from_file(path: Path) -> tuple[str, str]:
     suffix = path.suffix.lower()
     if suffix == ".pdf":
         return extract_pdf_text(path)
     if suffix == ".pptx":
         return extract_pptx_text(path)
+    if suffix in {".htm", ".html"}:
+        return extract_html_text(path)
+    if suffix == ".txt":
+        return extract_plain_text(path)
     return "", f"unsupported:{suffix or 'none'}"
 
 

@@ -84,8 +84,10 @@ label {
 }
 
 textarea,
+input[type="text"],
 input[type="number"],
-input[type="file"] {
+input[type="file"],
+select {
   width: 100%;
   border: 1px solid var(--panel-border);
   border-radius: 12px;
@@ -226,4 +228,3 @@ pre {
     grid-template-columns: 1fr;
   }
 }
-

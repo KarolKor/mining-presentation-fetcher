@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import secrets
 import subprocess
 import sys
@@ -19,21 +20,21 @@ RUNS_DIR.mkdir(parents=True, exist_ok=True)
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024
+EXCHANGE_OPTIONS = [
+    "NYSE",
+    "NASDAQ",
+    "AMEX",
+    "TSX",
+    "TSXV",
+    "CSE",
+    "ASX",
+    "LSE",
+]
 
 
 def _now_id() -> str:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     return f"{stamp}-{secrets.token_hex(4)}"
-
-
-def _normalize_specs(raw: str) -> list[str]:
-    specs: list[str] = []
-    for line in raw.splitlines():
-        value = line.strip()
-        if not value or value.startswith("#"):
-            continue
-        specs.append(value)
-    return specs
 
 
 def _safe_rel(base: Path, target: Path) -> str | None:
@@ -104,13 +105,25 @@ def _collect_result(job_id: str) -> dict:
 def index():
     job_id = request.args.get("job_id", "").strip()
     result = _collect_result(job_id) if job_id else None
-    return render_template("index.html", result=result)
+    return render_template(
+        "index.html",
+        result=result,
+        exchange_options=EXCHANGE_OPTIONS,
+        form_values={"ticker": "", "exchange": "TSX"},
+    )
 
 
 @app.post("/run")
 def run_fetch():
-    company_specs_raw = request.form.get("company_specs", "")
-    specs = _normalize_specs(company_specs_raw)
+    ticker = (request.form.get("ticker") or "").strip().upper()
+    exchange = (request.form.get("exchange") or "").strip().upper()
+    if exchange not in EXCHANGE_OPTIONS:
+        exchange = "TSX"
+
+    specs: list[str] = []
+    if ticker:
+        specs.append(f"{ticker}|{exchange}")
+
     include_sec = request.form.get("include_sec") == "on"
     playwright_fallback = request.form.get("playwright_fallback") == "on"
     disable_search_fallback = request.form.get("disable_search_fallback") == "on"
@@ -134,8 +147,10 @@ def run_fetch():
     if not specs and not has_upload:
         return render_template(
             "index.html",
-            form_error="Provide at least one inline company spec or upload a CSV file.",
+            form_error="Provide a ticker + exchange or upload a CSV file.",
             result=None,
+            exchange_options=EXCHANGE_OPTIONS,
+            form_values={"ticker": ticker, "exchange": exchange},
         )
 
     job_id = _now_id()
@@ -190,6 +205,8 @@ def run_fetch():
         "stderr": completed.stderr,
         "submitted_at_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "options": {
+            "ticker": ticker,
+            "exchange": exchange,
             "latest_count": latest_count,
             "timeout": timeout,
             "include_sec": include_sec,
@@ -206,8 +223,15 @@ def run_fetch():
             "index.html",
             form_error="Fetcher exited with an error. Check logs below.",
             result=result,
+            exchange_options=EXCHANGE_OPTIONS,
+            form_values={"ticker": ticker, "exchange": exchange},
         )
-    return render_template("index.html", result=result)
+    return render_template(
+        "index.html",
+        result=result,
+        exchange_options=EXCHANGE_OPTIONS,
+        form_values={"ticker": ticker, "exchange": exchange},
+    )
 
 
 @app.get("/files/<job_id>/<path:file_path>")
@@ -229,5 +253,5 @@ def download(job_id: str, file_path: str):
 
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5050, debug=True)
-
+    debug_enabled = os.getenv("APP_DEBUG", "").strip() in {"1", "true", "True"}
+    app.run(host="127.0.0.1", port=5050, debug=debug_enabled, use_reloader=debug_enabled)
