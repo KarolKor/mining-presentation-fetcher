@@ -1,0 +1,4 @@
+﻿interface:
+  display_name: "Mining Presentation Fetcher"
+  short_description: "Fetch latest mining IR decks fast."
+  default_prompt: "Use $mining-presentation-fetcher to download each company's latest investor presentation file and save full extracted text."
